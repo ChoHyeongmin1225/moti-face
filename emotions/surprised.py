@@ -10,6 +10,11 @@ class Emotion:
         self.animation_start_time = 0
         self.is_animating = False
 
+    def reset(self):
+        """이 감정이 다시 활성화될 때 애니메이션 상태를 초기화합니다."""
+        self.animation_start_time = 0
+        self.is_animating = False
+
     def draw(self, surface, common_data):
         left_eye, right_eye, offset, time = common_data['left_eye'], common_data['right_eye'], common_data['offset'], common_data['time']
 

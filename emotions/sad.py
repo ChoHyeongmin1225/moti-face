@@ -11,11 +11,6 @@ class Emotion:
         
         # [수정] 바운싱(slumping) 효과 제거
         body_offset = (0, 0) 
-        
-        for i in [-1, 1]:
-            eye_x = (left_eye[0] if i == -1 else right_eye[0]) + body_offset[0]
-            eye_y = left_eye[1] + body_offset[1]
-            pygame.draw.line(surface, WHITE, (eye_x-50, eye_y-80), (eye_x+50, eye_y-100), 10)
             
         mouth_rect = (surface.get_width()//2-80, surface.get_height()//2+130+body_offset[1], 160, 60)
         pygame.draw.arc(surface, WHITE, mouth_rect, 0, math.pi, 8)
@@ -26,7 +21,7 @@ class Emotion:
             size = 20 - (self.tear_offset_y/200)*10
             tear_surf = pygame.Surface((40,50), pygame.SRCALPHA)
             pygame.draw.circle(tear_surf, TEAR_COLOR, (20,20), size)
-            pygame.draw.polygon(tear_surf, TEAR_COLOR, [(20-size,20), (20+size,20), (20,20+size*1.5)])
+            pygame.draw.polygon(tear_surf, TEAR_COLOR, [(20-size,20), (20+size,20), (20,20-size*1.5)])
             surface.blit(tear_surf, (left_eye[0]-20, tear_y))
             
         draw_base_eye(surface, (left_eye[0]+body_offset[0], left_eye[1]+body_offset[1]), offset, 25, SAD_BLUE_START, SAD_BLUE_END)

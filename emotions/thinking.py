@@ -11,22 +11,6 @@ class Emotion:
         # [수정] 애니메이션 효과를 제거하고 고정된 값으로 변경
         RIGHT_SIDE_RAISE = 8  # 오른쪽을 얼마나 올릴지 정하는 값
         
-        # --- 눈썹 (비대칭 형태로 고정) ---
-        eyebrow_thickness = 10
-        
-        # 왼쪽 눈썹 (평평함)
-        left_brow_y = left_eye[1] - 90
-        pygame.draw.line(surface, WHITE,
-                         (left_eye[0] - 50, left_brow_y),
-                         (left_eye[0] + 50, left_brow_y),
-                         eyebrow_thickness)
-
-        # 오른쪽 눈썹 (아치형으로 살짝 올라감)
-        right_brow_y = right_eye[1] - 90 - RIGHT_SIDE_RAISE
-        right_brow_rect = pygame.Rect(right_eye[0] - 50, right_brow_y - 30, 100, 60)
-        pygame.draw.arc(surface, WHITE, right_brow_rect, math.radians(20), math.radians(160), eyebrow_thickness)
-
-
         # --- 입 모양 ('-' 모양, 중앙 고정) ---
         mouth_center_x = surface.get_width() // 2
         mouth_y = surface.get_height() // 2 + 130
