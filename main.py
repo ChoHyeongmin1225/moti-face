@@ -23,7 +23,18 @@ from emotions import cheeks
 class RobotFaceApp:
     def __init__(self):
         pygame.init()
-        self.desktop_width, self.desktop_height = pygame.display.get_desktop_sizes()[1]
+
+        # 모든 모니터의 해상도를 리스트로 가져옵니다.
+        monitor_sizes = pygame.display.get_desktop_sizes()
+
+        # 사용할 모니터의 인덱스를 지정합니다 (0은 메인, 1은 서브 등등).
+        monitor_index = 1
+
+        # 만약 모니터가 하나뿐이면, 메인 모니터를 사용하도록 합니다.
+        if len(monitor_sizes) <= monitor_index:
+            monitor_index = 0
+
+        self.desktop_width, self.desktop_height = monitor_sizes[monitor_index]
         self.original_width, self.original_height = 800, 480
 
         # 화면 비율을 유지하기 위한 스케일링 비율을 계산합니다.
@@ -35,8 +46,16 @@ class RobotFaceApp:
         # 원래 디자인 해상도로 그리기 위한 베이스 서피스를 생성합니다.
         self.scaled_height = int(self.original_height * self.scale_factor)
 
-        # 스케일링된 크기로 주 화면을 생성합니다.
-        self.screen = pygame.display.set_mode((self.scaled_width, self.scaled_height), pygame.FULLSCREEN)
+        # 전체 화면 모드로 주 화면을 생성하고, 선택한 모니터에 띄웁니다.
+        self.screen = pygame.display.set_mode(
+            (self.desktop_width, self.desktop_height), 
+            0, 
+            display=monitor_index
+        )
+
+        # 마우스 포커스를 창에 고정하여 클릭 시 창이 닫히는 현상을 방지합니다.
+        #pygame.event.set_grab(True)
+
         self.base_surface = pygame.Surface((self.original_width, self.original_height))
 
         pygame.display.set_caption("로봇 얼굴 (감정 선택: H, E, T, S, A, B, N)")
@@ -232,6 +251,8 @@ class RobotFaceApp:
         # 베이스 서피스를 주 화면 크기에 맞게 스케일링합니다.
         # 스케일링된 서피스를 주 화면에 복사합니다.
         scaled_surface = pygame.transform.scale(self.base_surface, (self.scaled_width, self.scaled_height))
+        
+        # 스케일링된 서피스를 주 화면에 복사합니다.
         self.screen.blit(scaled_surface, (0, 0))
 
         pygame.display.flip()
