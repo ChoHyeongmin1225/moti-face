@@ -4,27 +4,42 @@ import pvporcupine
 import pyaudio
 import struct
 import threading
+import time
+import queue
 import os
 from dotenv import load_dotenv
 
 class HotwordDetector(threading.Thread):
-    # HotwordDetector 클래스는 스레드로 동작하여 메인 프로그램과 별도로 핫워드 감지 작업을 수행합니다.
     def __init__(self, access_key, hotword_queue):
         super().__init__()
         self.access_key = access_key
-
-        # 핫워드 감지 시 메인 스레드에 메시지를 전달하기 위한 큐입니다
-        # 스레드에게 핫워드 감지를 시작하라고 알리는 데 사용되는 이벤트 객체입니다.
-        # 스레드가 계속 실행되어야 하는지 여부를 결정하는 플래그입니다.
         self.hotword_queue = hotword_queue
         self.listen_event = threading.Event()
         self.should_run = True
-
+        
+        # 수정된 부분: 환경 변수에서 경로를 안전하게 로드하고, 파일 존재 여부를 확인하는 로직을 추가했습니다.
         load_dotenv(dotenv_path='./.env.local')
 
-        # 환경 변수에서 핫워드 및 파라미터 파일 경로를 불러옵니다.
         hotword_path = os.getenv("HOTWORD_PATH")
         model_path = os.getenv("MODEL_PATH")
+        
+        if hotword_path is None or model_path is None:
+            print("오류: .env.local 파일에서 'HOTWORD_PATH' 또는 'MODEL_PATH'를 찾을 수 없습니다.")
+            self.porcupine = None
+            self.should_run = False
+            return
+        
+        if not os.path.exists(hotword_path):
+            print(f"오류: 핫워드 파일 경로가 잘못되었습니다. '{hotword_path}' 파일을 찾을 수 없습니다.")
+            self.porcupine = None
+            self.should_run = False
+            return
+
+        if not os.path.exists(model_path):
+            print(f"오류: 모델 파일 경로가 잘못되었습니다. '{model_path}' 파일을 찾을 수 없습니다.")
+            self.porcupine = None
+            self.should_run = False
+            return
         
         try:
             self.porcupine = pvporcupine.create(
@@ -36,6 +51,7 @@ class HotwordDetector(threading.Thread):
             print(f"Porcupine 초기화 오류: {e}")
             self.porcupine = None
             self.should_run = False
+            return
         
         self.pa = pyaudio.PyAudio()
         self.audio_stream = None
@@ -62,15 +78,12 @@ class HotwordDetector(threading.Thread):
                     print("핫워드 감지됨! '안녕 모티'")
                     self.hotword_queue.put("hotword_detected")
             except Exception as e:
-                # The exception is expected when the stream is closed
                 if not self.should_run:
                     break
-                # Only print the error if it's not due to normal shutdown
                 if self.is_listening:
                     print(f"오디오 스트림 읽기 오류: {e}")
                 self._stop_listening()
         
-        # Final cleanup on thread exit
         if self.porcupine:
             self.porcupine.delete()
         if self.pa:
@@ -98,16 +111,13 @@ class HotwordDetector(threading.Thread):
     def start_detection(self):
         self.listen_event.set()
 
+    # 수정된 부분: stop_detection() 메서드를 더 안전하게 수정하여, 이미 닫힌 스트림에 접근하지 않도록 했습니다.
     def stop_detection(self):
         self.listen_event.clear()
-
         if self.audio_stream is not None:
              self._stop_listening()
 
     def stop(self):
-        """Signals the thread to stop and waits for it to finish."""
         self.should_run = False
-        # Unblock the wait() call
         self.listen_event.set() 
-        # Wait for the thread to finish its loop
         self.join()

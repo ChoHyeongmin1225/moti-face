@@ -169,6 +169,10 @@ class RobotFaceApp:
             
             # 키보드 입력에 따라 감정을 즉시 변경
             if event.type == pygame.KEYDOWN:
+                # SLEEPY 모드일 때는 키보드 입력을 처리하지 않습니다.
+                if self.current_emotion_key == "SLEEPY":
+                    continue
+
                 key_map = {
                     pygame.K_1: "NEUTRAL", pygame.K_2: "HAPPY", pygame.K_3: "EXCITED",
                     pygame.K_4: "TENDER", pygame.K_5: "SCARED", pygame.K_6: "ANGRY",
@@ -228,17 +232,17 @@ class RobotFaceApp:
         dist = math.hypot(dx, dy)
 
         # 모든 감정 전환 로직
-        # SLEEPY 상태에서 마우스 홀드로 WAKE로 전환
+         # 1. SLEEPY 상태에서 마우스 홀드로 WAKE로 전환
         if self.current_emotion_key == "SLEEPY":
             if self.is_mouse_down and pygame.time.get_ticks() - self.mouse_down_time >= self.hold_duration:
-             self.change_emotion("WAKE")
+                self.change_emotion("WAKE")
 
-        # WAKE 상태에서 3초 후 NEUTRAL로 전환
+         # 2. WAKE 상태에서 3초 후 NEUTRAL로 전환
         elif self.current_emotion_key == "WAKE":
             if pygame.time.get_ticks() - self.wake_timer_start_time >= 3000:
                 self.change_emotion("NEUTRAL")
 
-        # NEUTRAL 상태에서 3번의 터치로 ANGRY로 전환
+         # 3. NEUTRAL 상태에서 3번의 터치로 ANGRY로 전환
         elif self.current_emotion_key == "NEUTRAL":
             if self.click_count >= 3:
                 self.change_emotion("ANGRY")
@@ -248,7 +252,7 @@ class RobotFaceApp:
             elif pygame.time.get_ticks() - self.emotion_timer_start_time >= 20000:
                 self.change_emotion("SLEEPY")
 
-        #  SLEEPY, WAKE, NEUTRAL이 아닌 모든 감정에서 10초 후 NEUTRAL로 돌아갑니다
+        # 4. 그 외 모든 감정 상태일 때의 동작 (ANGRY, SAD 등)
         else:
             if pygame.time.get_ticks() - self.emotion_timer_start_time >= 10000:
                 self.change_emotion("NEUTRAL")
