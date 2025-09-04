@@ -4,6 +4,8 @@ import pygame
 import sys
 import random
 import math
+import queue
+import os
 
 # 각 감정 모듈에서 Emotion 클래스를 불러옵니다.
 from emotions.neutral import Emotion as NeutralEmotion
@@ -19,6 +21,13 @@ from emotions.sleepy import Emotion as SleepyEmotion
 from emotions.wake import Emotion as wake
 from emotions import eyebrow
 from emotions import cheeks
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path='./.env.local')
+
+# Import the HotwordDetector class from hotword.py
+from hotword import HotwordDetector
+PICOVOICE_ACCESS_KEY = os.getenv("PICOVOICE_ACCESS_KEY")
 
 class RobotFaceApp:
     def __init__(self):
@@ -63,6 +72,7 @@ class RobotFaceApp:
         self.emotion_timer_start_time = pygame.time.get_ticks()
         self.neutral_to_sleepy_duration = 20000 
 
+        self.wake_timer_start_time = 0 
         # 마우스 누르기 상태를 추적하는 변수입니다.
         self.is_mouse_down = False
         self.mouse_down_time = 0
@@ -116,32 +126,67 @@ class RobotFaceApp:
             "TENDER": cheeks.draw_tender_cheeks,
         }
 
+        # --- Hotword Detector Integration ---
+        # 1. Create a queue for communication
+        self.hotword_queue = queue.Queue()
+        # 2. Instantiate and start the hotword detector thread
+        self.hotword_detector = HotwordDetector(access_key=PICOVOICE_ACCESS_KEY, hotword_queue=self.hotword_queue)
+        self.hotword_detector.start()
+        print("Hotword detector thread started.")
+
+    def change_emotion(self, new_emotion_key):
+        # 감정을 변경하고 핫워드 감지기의 상태를 관리하는 헬퍼 메서드
+        if self.current_emotion_key != new_emotion_key:
+            self.current_emotion_key = new_emotion_key
+            self.emotion_timer_start_time = pygame.time.get_ticks()
+
+            if hasattr(self.emotions[self.current_emotion_key], 'reset'):
+                self.emotions[self.current_emotion_key].reset()
+
+            # 감정에 따른 핫워드 감지 로직
+            if new_emotion_key == "SLEEPY":
+                # SLEEPY 상태일 때만 핫워드 감지를 시작합니다.
+                self.hotword_detector.start_detection()
+                print("Now listening for hotword '안녕 모티'.")
+
+            elif new_emotion_key == "WAKE":
+                # WAKE 상태일 때는 핫워드 감지를 중지하고, 깨어 있는 시간 타이머를 시작합니다.
+                self.hotword_detector.stop_detection()
+                self.wake_timer_start_time = pygame.time.get_ticks()
+                print("Hotword detection stopped.")
+
+            else:
+                # 다른 모든 감정 상태일 때 핫워드 감지를 중지합니다.
+                self.hotword_detector.stop_detection()
+                print("Not listening for hotword.")
+
     def handle_events(self):
+        # 키보드 및 마우스 입력을 처리하는 메서드
         for event in pygame.event.get():
+            # 프로그램 종료 또는 ESC 키 입력을 감지
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 return False
             
+            # 키보드 입력에 따라 감정을 즉시 변경
             if event.type == pygame.KEYDOWN:
                 key_map = {
-                    pygame.K_n: "NEUTRAL", pygame.K_h: "HAPPY", pygame.K_e: "EXCITED",
-                    pygame.K_t: "TENDER", pygame.K_s: "SCARED", pygame.K_a: "ANGRY",
-                    pygame.K_b: "SAD", pygame.K_u: "SURPRISED", pygame.K_i: "THINKING", 
-                    pygame.K_z: "SLEEPY"
+                    pygame.K_1: "NEUTRAL", pygame.K_2: "HAPPY", pygame.K_3: "EXCITED",
+                    pygame.K_4: "TENDER", pygame.K_5: "SCARED", pygame.K_6: "ANGRY",
+                    pygame.K_7: "SAD", pygame.K_8: "SURPRISED", pygame.K_9: "THINKING", 
+                    pygame.K_0: "SLEEPY"
                 }
+
                 if event.key in key_map:
-                    if self.current_emotion_key != key_map[event.key]:
-                        self.current_emotion_key = key_map[event.key]
-                        self.emotion_timer_start_time = pygame.time.get_ticks()
-                    if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                            self.emotions[self.current_emotion_key].reset()
+                    self.change_emotion(key_map[event.key])
             
+            # 마우스 클릭 이벤트를 처리
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: # Left mouse button
                     self.is_mouse_down = True
                     self.mouse_down_time = pygame.time.get_ticks()
 
                     # NEUTRAL 상태에서만 터치 횟수를 계산합니다.
-                    if self.current_emotion_key == "NEUTRAL":
+                    if self.current_emotion_key == "NEUTRAL" or self.current_emotion_key == "WAKE":
                         current_time = pygame.time.get_ticks()
                         # 1초 이상 간격이 벌어졌으면 카운트를 초기화합니다.
                         if current_time - self.click_timer > self.click_timeout:
@@ -157,6 +202,7 @@ class RobotFaceApp:
                 if event.button == 1:
                     self.is_mouse_down = False
 
+            # 눈동자 무작위 움직임과 깜빡임 이벤트를 처리
             if event.type == pygame.USEREVENT + 1:
                 self.target_offset = self.get_random_target_offset()
             if event.type == pygame.USEREVENT + 2 and not self.is_blinking:
@@ -165,43 +211,49 @@ class RobotFaceApp:
         return True
 
     def update(self):
+        # 게임의 논리 및 상태 변경을 처리하는 메서드
+        # 핫워드 감지 큐를 확인하여 메시지가 있으면 WAKE 상태로 전환
+        try:
+            message = self.hotword_queue.get_nowait()
+            if message == "hotword_detected":
+                print("Hotword detected in main thread. Waking up!")
+                # Change to WAKE emotion when hotword is detected
+                self.change_emotion("WAKE")
+        except queue.Empty:
+            pass
+        
+        # 눈동자 움직임 로직
         dx = self.target_offset[0] - self.common_data['offset'][0]
         dy = self.target_offset[1] - self.common_data['offset'][1]
         dist = math.hypot(dx, dy)
 
-        # 마우스가 눌려있을 때 SLEEPY에서 WAKE로 전환하는 로직이 가장 우선순위가 높습니다.
-        if self.current_emotion_key == "SLEEPY" and self.is_mouse_down:
-            if pygame.time.get_ticks() - self.mouse_down_time >= self.hold_duration:
-                self.current_emotion_key = "WAKE"
-                # 감정 전환 후 타이머를 리셋합니다.
-                self.emotion_timer_start_time = pygame.time.get_ticks()
-                if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                    self.emotions[self.current_emotion_key].reset()
+        # 모든 감정 전환 로직
+        # SLEEPY 상태에서 마우스 홀드로 WAKE로 전환
+        if self.current_emotion_key == "SLEEPY":
+            if self.is_mouse_down and pygame.time.get_ticks() - self.mouse_down_time >= self.hold_duration:
+             self.change_emotion("WAKE")
 
-        # 현재 감정이 SLEEPY가 아닐 때만 아래 타이머 로직을 실행합니다.
-        elif self.current_emotion_key != "SLEEPY":
-            # NEUTRAL 상태에서 20초가 지나면 SLEEPY로 전환합니다.
-            if self.current_emotion_key == "NEUTRAL":
-                if pygame.time.get_ticks() - self.emotion_timer_start_time >= 20000:
-                    self.current_emotion_key = "SLEEPY"
-                    self.emotion_timer_start_time = pygame.time.get_ticks()
-                    if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                        self.emotions[self.current_emotion_key].reset()
-            # SLEEPY나 NEUTRAL이 아닌 다른 감정에서 10초가 지나면 NEUTRAL로 전환합니다.
-            else:
-                if pygame.time.get_ticks() - self.emotion_timer_start_time >= 10000:
-                    self.current_emotion_key = "NEUTRAL"
-                    self.emotion_timer_start_time = pygame.time.get_ticks()
-                    if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                        self.emotions[self.current_emotion_key].reset()
+        # WAKE 상태에서 3초 후 NEUTRAL로 전환
+        elif self.current_emotion_key == "WAKE":
+            if pygame.time.get_ticks() - self.wake_timer_start_time >= 3000:
+                self.change_emotion("NEUTRAL")
 
-        # 추가: NEUTRAL 상태에서 3번 이상 터치하면 ANGRY로 전환합니다.
-        if self.current_emotion_key == "NEUTRAL" and self.click_count >= 3:
-            self.current_emotion_key = "ANGRY"
-            self.click_count = 0 # 터치 횟수 초기화
-            if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                self.emotions[self.current_emotion_key].reset()
+        # NEUTRAL 상태에서 3번의 터치로 ANGRY로 전환
+        elif self.current_emotion_key == "NEUTRAL":
+            if self.click_count >= 3:
+                self.change_emotion("ANGRY")
+                self.click_count = 0
 
+            # NEUTRAL 상태에서 20초 후 SLEEPY로 전환
+            elif pygame.time.get_ticks() - self.emotion_timer_start_time >= 20000:
+                self.change_emotion("SLEEPY")
+
+        #  SLEEPY, WAKE, NEUTRAL이 아닌 모든 감정에서 10초 후 NEUTRAL로 돌아갑니다
+        else:
+            if pygame.time.get_ticks() - self.emotion_timer_start_time >= 10000:
+                self.change_emotion("NEUTRAL")
+
+        # 눈동자 움직임과 깜빡임 상태를 업데이트
         if dist > self.move_speed:
             self.common_data['offset'][0] += (dx / dist) * self.move_speed
             self.common_data['offset'][1] += (dy / dist) * self.move_speed
@@ -214,6 +266,7 @@ class RobotFaceApp:
         self.common_data['time'] = pygame.time.get_ticks()
 
     def draw(self):
+        # 화면 요소를 그리는 메서드
         # 주 화면을 검은색으로 채웁니다.
         # 모든 요소를 그릴 베이스 서피스를 검은색으로 채워 초기화합니다.
         self.screen.fill((0, 0, 0))
@@ -223,13 +276,6 @@ class RobotFaceApp:
         # 베이스 서피스에 현재 감정의 얼굴을 그립니다.
         current_emotion = self.emotions[self.current_emotion_key]
         current_emotion.draw(self.base_surface, self.common_data)
-
-        # 감정이 'SLEEPY'이고 마우스가 2초 이상 눌렸을 경우, 'WAKE' 감정으로 전환하는 로직입니다.
-        if self.current_emotion_key == "SLEEPY" and self.is_mouse_down:
-            if pygame.time.get_ticks() - self.mouse_down_time >= self.hold_duration:
-                self.current_emotion_key = "WAKE"
-                if hasattr(self.emotions[self.current_emotion_key], 'reset'):
-                    self.emotions[self.current_emotion_key].reset()
 
         # 깜빡이는 중이고 감정이 'SLEEPY'가 아닐 경우, 눈꺼풀을 그립니다.
         if self.is_blinking and self.current_emotion_key != "SLEEPY":
@@ -263,12 +309,22 @@ class RobotFaceApp:
         return [math.cos(angle) * distance, math.sin(angle) * distance]
 
     def run(self):
+        # 애플리케이션의 메인 루프
         running = True
+
+        # 프로그램 시작 시 초기 감정 상태에 따라 핫워드 감지기를 설정합니다.
+        # (예: NEUTRAL 상태에서 시작하므로 SLEEPY로 전환될 때까지는 비활성화됩니다)
+        if self.current_emotion_key == "SLEEPY":
+            self.change_emotion("SLEEPY")
+
         while running:
             running = self.handle_events()
             self.update()
             self.draw()
             self.clock.tick(60)
+        
+        # 프로그램 종료 시 핫워드 감지 스레드를 안전하게 종료
+        self.hotword_detector.stop()
         pygame.quit()
         sys.exit()
 
